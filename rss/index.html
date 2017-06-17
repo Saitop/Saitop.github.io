@@ -1,0 +1,564 @@
+<?xml version="1.0" encoding="UTF-8"?><rss xmlns:dc="http://purl.org/dc/elements/1.1/" xmlns:content="http://purl.org/rss/1.0/modules/content/" xmlns:atom="http://www.w3.org/2005/Atom" version="2.0" xmlns:media="http://search.yahoo.com/mrss/"><channel><title><![CDATA[Lam, Hon-Yin]]></title><description><![CDATA[Thoughts, stories and ideas.]]></description><link>http://localhost:2368/</link><image><url>http://localhost:2368/favicon.png</url><title>Lam, Hon-Yin</title><link>http://localhost:2368/</link></image><generator>Ghost 1.0</generator><lastBuildDate>Sat, 17 Jun 2017 13:13:46 GMT</lastBuildDate><atom:link href="http://localhost:2368/rss/" rel="self" type="application/rss+xml"/><ttl>60</ttl><item><title><![CDATA[Export JSON data as Excel file in Spring framework]]></title><description><![CDATA[<div class="kg-card-markdown"><p>How to transfer a JSON-like data to an Excel sheet? This is the most unreasonable requirements(sorry for the complain) I have met these days, because we usually export sheets as <a href="http://localhost:2368/export-json-data-as-excel-file-in-spring-framework/">csv</a>, like the link below: <a href="http://stackoverflow.com/questions/20216495/jquery-export-to-excel-include-html-th-rows">http://stackoverflow.com/questions/20216495/jquery-export-to-excel-include-html-th-rows</a> .<br><br>
+However, since the requirement is not negotiable(another</p></div>]]></description><link>http://localhost:2368/export-json-data-as-excel-file-in-spring-framework/</link><guid isPermaLink="false">594513f58511973ba260d73d</guid><dc:creator><![CDATA[Lam, Hon-Yin]]></dc:creator><pubDate>Mon, 30 Jan 2017 16:34:41 GMT</pubDate><content:encoded><![CDATA[<div class="kg-card-markdown"><p>How to transfer a JSON-like data to an Excel sheet? This is the most unreasonable requirements(sorry for the complain) I have met these days, because we usually export sheets as <a href="http://localhost:2368/export-json-data-as-excel-file-in-spring-framework/">csv</a>, like the link below: <a href="http://stackoverflow.com/questions/20216495/jquery-export-to-excel-include-html-th-rows">http://stackoverflow.com/questions/20216495/jquery-export-to-excel-include-html-th-rows</a> .<br><br>
+However, since the requirement is not negotiable(another complain), let's do it with Excel.<br><br>
+I am doing a Web app and I would like to start with the backend, so let's pretend we already have a JSON sent from the front-end (we talk about this later) which will look like this:</p>
+<pre><code>{
+      "reportHeaders": {
+        "name": "Name",
+        "class": "Class",
+        "code": "Code"
+      },
+      reportContent: [
+        {
+           "name": "Alex",
+           "class": "Class A",
+           "code": "123456"
+        },
+        {
+           "name": "Bob",
+           "class": "Class B",
+           "code": "987654"
+        }]
+}
+</code></pre>
+<p>I believe you know what that means. After all the processes below, it will turn out as an Excel sheet like:</p>
+<pre><code>| Name          | Class         | Code   |
+| ------------- |:-------------:| ------:|
+| Alex          | Class A       | 123456 |
+| Bob           | Class B       | 987654 |
+</code></pre>
+<p>(the creaky markdown tool...All I want is to represent a table..)</p>
+<h3 id="springcontroller">Spring controller</h3>
+<p>To receive the request with json body mentioned above, we will need a controller like this:</p>
+<pre><code>@Controller
+@NoArgsConstructor
+public class ReportExportController {
+    @RequestMapping(value = "/download/excel", method = POST, headers = ACCEPT_JSON)
+    public ModelAndView generateReport(@RequestBody ExportRequest exportRequest) throws IOException {
+        if (exportRequest.getReportContent().size() == 0 ) return null;
+        return CustomExcelTemplate.newModelAndView(exportRequest.getReportContent(), exportRequest.getReportHeaders());
+    }
+}
+
+</code></pre>
+<p>The version of spring I am using is <code>org.springframework:spring-webmvc:4.1.5.RELEASE</code>, but I think there is not much differences between spring stuff (if there is, just make some adjustment).<br><br>
+What the controller's doing is to convert the json to an Excel sheet. To achieve that, we will need a model to interpret the request (the json body aboved), which Spring will handle.</p>
+<pre><code>package •••
+import •••
+
+@Getter
+@Setter
+@NoArgsConstructor  
+@AllArgsConstructor
+public class ExportRequest {
+
+    private LinkedHashMap&lt;String,String&gt; reportHeaders;
+
+    private List&lt;Map&lt;String, String&gt;&gt; reportContent;
+}
+
+</code></pre>
+<h3 id="exceltemplate">Excel Template</h3>
+<p>And the most important thing, <code>CustomExcelTemplate</code>:</p>
+<pre><code>public class CustomExcelTemplate  extends AbstractXlsxView {
+    
+    private static final String KEY_EXCEL_CONTENT = "KEY_EXCEL_CONTENT";
+    private static final String KEY_EXCEL_HEADERS = "KEY_EXCEL_HEADERS";
+
+    public static ModelAndView newModelAndView(Object reportContent, HashMap&lt;String, String&gt; reportHeaders) {
+        ModelAndView modelAndView = new ModelAndView(INSTANCE);
+        modelAndView.addObject(KEY_EXCEL_CONTENT, reportContent);
+        modelAndView.addObject(KEY_EXCEL_HEADERS, reportHeaders);
+        return modelAndView;
+    }
+
+    private static CustomExcelTemplate INSTANCE = new CustomExcelTemplate();
+
+    @Override
+    protected void buildExcelDocument(Map&lt;String, Object&gt; model, Workbook workbook, HttpServletRequest request, HttpServletResponse response) throws Exception {
+
+        Object reportContent = model.get(KEY_EXCEL_CONTENT);
+        Object reportHeaders = model.get(KEY_EXCEL_HEADERS);
+
+        if (!(reportContent instanceof Collection)) {
+            throw new IllegalArgumentException("Type is not correct");
+        }
+
+        if (!(reportHeaders instanceof Map)) {
+            throw new IllegalArgumentException("Type is not correct");
+        }
+
+        Collection&lt;?&gt; reportContentList = (Collection&lt;?&gt;) reportContent;
+
+        int rowIndex = 0;
+        int headerCellIndex = 0;
+
+        Sheet sheet = workbook.createSheet();
+        Row header = sheet.createRow(rowIndex++);
+
+        Collection reportHeaderValues = ((LinkedHashMap) reportHeaders).values();
+        Set reportHeaderKeySet = ((LinkedHashMap) reportHeaders).keySet();
+
+        String[] headerValues = (String[]) reportHeaderValues.toArray(new String[0]);
+        String[] headerKeys = (String[]) reportHeaderKeySet.toArray(new String[0]);
+
+        for (String reportHeader : headerValues) {
+            header.createCell(headerCellIndex).setCellValue(reportHeader);
+            headerCellIndex++;
+        }
+
+        for (Object reportContentMap : reportContentList) {
+            Row itemRow = sheet.createRow(rowIndex++);
+
+            for (int cellIndex = 0; cellIndex &lt; headerKeys.length; cellIndex++) {
+                String cellValue = (String) ((HashMap) reportContentMap).get(headerKeys[cellIndex]);
+                itemRow.createCell(cellIndex).setCellValue(cellValue);
+            }
+        }
+    }
+}
+</code></pre>
+<p>The hardest part is to find the super class <code>AbstractXlsxView</code> which is found in package <code>org.apache.poi</code>(If it doesn't work, Google it).<br><br>
+I don't want to explain these codes line by line, which is not worth... It's just literally interpreting every json data like</p>
+<pre><code>{
+      "reportHeaders": {
+         "key1": "as a header"
+      },
+      reportContent: [
+        {
+          "key1": "as a value"
+        },
+        ...
+       ]
+}
+</code></pre>
+<h3 id="thefrontend">The front-end</h3>
+<p>To use ajax to send the json data like:</p>
+<pre><code>$.ajax({
+  url: "http://localhost:8080/download/excel",
+  method: "post",
+  dataType: 'blob',
+  success: function(data){
+  var blob = new Blob([data], {type: "application/vnd.ms-excel"});
+  saveAs(blob, "file.xlsx"); //or window.open(blob)
+                }
+            });
+</code></pre>
+<p>The data type <code>application/vnd.ms-excel</code> is for <code>xls</code> file.</p>
+<p>For Excel2007 and above, aka <code>xlsx</code> files, replace the type with this:<br><br>
+<code>application/vnd.openxmlformats-officedocument.spreadsheetml.sheet</code></p>
+<p>If you're use angular 1.x, do it like this:</p>
+<pre><code>$http({
+      url: '/download/excel',
+      method: 'POST',
+      data: JSON.stringify(reportData),
+      headers: {
+        'Content-type': 'application/json'
+      },
+      responseType: 'blob'
+    }).success(function (data, status, headers, config) {
+      if(data.size&gt;0) {
+        var blob = new Blob([data], {type: "application/vnd.ms-excel"});
+        saveAs(blob, fileName + '.xlsx');
+      }
+    }).error(function (error, status) {
+      console.log(error);
+    });
+  };
+</code></pre>
+<p>If you're using ES6, do it with <code>fetch</code>:</p>
+<pre><code>fetch('/download/excel')
+.then(function(response) {
+  return response.blob();
+})
+.then(function(myBlob) {
+  var objectURL = URL.createObjectURL(myBlob);
+  myImage.src = objectURL;
+});
+</code></pre>
+</div>]]></content:encoded></item><item><title><![CDATA[A workable backend boilerplate forged by Spring Boot and MongoDB]]></title><description><![CDATA[<div class="kg-card-markdown"><p><strong>Foreword:<br><br>
+It's not for veteran or magical wizard :)  This article is a quick and practical introduction to use Spring Boot and MongoDB to build a server side application .</strong></p>
+<p>Recently I had to build a <a href="https://en.wikipedia.org/wiki/Representational_state_transfer">RESTful</a> backend (or server, call it whatever you want, and REST is not the subject of</p></div>]]></description><link>http://localhost:2368/a-workable-backend-boilerplate-forged-by-spring-boot-with-mongodb-2/</link><guid isPermaLink="false">594513f58511973ba260d73c</guid><category><![CDATA[mongoDB]]></category><category><![CDATA[Spring Boot]]></category><dc:creator><![CDATA[Lam, Hon-Yin]]></dc:creator><pubDate>Sun, 27 Nov 2016 09:28:18 GMT</pubDate><content:encoded><![CDATA[<div class="kg-card-markdown"><p><strong>Foreword:<br><br>
+It's not for veteran or magical wizard :)  This article is a quick and practical introduction to use Spring Boot and MongoDB to build a server side application .</strong></p>
+<p>Recently I had to build a <a href="https://en.wikipedia.org/wiki/Representational_state_transfer">RESTful</a> backend (or server, call it whatever you want, and REST is not the subject of this article) to support a mobile app, using Spring Boot and MongoDB for some reasons. Neither Spring Boot nor MongoDB is my thing, so building a backend with them from scratch is kind of suffering. Since the tutorials out there are either fragmented or obscure, here I will offer a minimum-viable (Spring Boot + MongoDB) backend so as to get rid of the noise which will confuse a newbie.<br><br>
+I always believe that knowing too much useless details at the very beginning of the course to master a new tech is not gonna help but frustrating. On the contrary, ramping your knowledge up step by step based on a practical sample is much easier. The following sample is a good start point for beginners to learn both <a href="https://projects.spring.io/spring-boot/">Spring Boot</a> and <a href="https://www.mongodb.com/">Mongo</a>.</p>
+<p>Our goal is to create a workable backend that accept HTTP request and change the state of MongoDB, in other word, do a data persistence in database.<br><br>
+No more chatting, take a deep breath and dive.</p>
+<h3 id="overview">Overview</h3>
+<p>Our project structure will eventually looks like this:</p>
+<pre><code>demo
+├── build.gradle
+└── src
+    └── main
+        ├── java
+           └── com
+               └── demo
+                   ├── Application.java
+                   ├── config
+                   │   └── MongoConfig.java
+                   ├── controller
+                   │   ├── AccountController.java
+                   │   └── hateverController.java
+                   ├── model
+                   │   ├── Account.java
+                   │   ├── SignUpRequest.java
+                   │
+                   │   
+                   ├── repository
+                   │   └── AccountRepository.java
+                   └── service
+                       └── AccountService.java
+        
+
+</code></pre>
+<p>Hand on, you don't have to create each file manually. The magicians of Spring offer you something like this:</p>
+<p><img src="http://localhost:2368/content/images/2016/11/Screen-Shot-2016-11-26-at-16.39.15.png" alt="boostrap the Spring appliation"><br><br>
+It's a <a href="https://start.spring.io/">boostrap tool for Spring application</a>. You can type you project name in <code>Artifact</code>, type and select <code>MongoDB</code> in the the feild of <code>Dependencies</code>, and select your build tool as <code>Gradle Project</code> on the top.  After click <code>Generate Project</code>, you will get a project with the similar structure to our demo application. All you need to do is to flesh out the project skeleton with the upcoming codes.</p>
+<h3 id="gradleconfiguration">Gradle Configuration</h3>
+<p>I am not going into details of every tool we use for the sake of simplicity. And like I said, you don't need to know every details at the beginning.<br><br>
+So edit the file <code>build.gradle</code> in the demo project and make it like this:</p>
+<p><em>build.gradle</em></p>
+<pre><code>group 'com.demo'
+version '1.0-SNAPSHOT'
+
+buildscript {
+    repositories {
+        mavenCentral()
+    }
+    dependencies {
+        classpath("org.springframework.boot:spring-boot-gradle-plugin:1.4.0.RELEASE")
+    }
+}
+
+apply plugin: 'idea'
+apply plugin: 'java'
+apply plugin: 'spring-boot'
+
+sourceCompatibility = 1.8
+targetCompatibility = 1.8
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    compile group: 'org.projectlombok', name: 'lombok', version: '1.16.10'
+    compile group: 'org.springframework.boot', name: 'spring-boot-starter-web', version: '1.4.0.RELEASE'
+    compile 'org.mongodb:mongodb-driver:3.3.0'
+    compile 'org.springframework.data:spring-data-mongodb:1.9.4.RELEASE'
+    testCompile group: 'junit', name: 'junit', version: '4.11'
+    testCompile group: 'org.springframework.boot', name: 'spring-boot-starter-test', version: '1.4.0.RELEASE'
+}
+</code></pre>
+<p>This file is a blueprint to build the application, which specify the version of your application, the version of programming language (we use Java 1.8 here), the IDE support tool(I use idea), the dependencies the application will need, and where to grab these dependencies. <a href="https://gradle.org/">Gradle</a>, a build tool and a package manager, will handle all these things if there is a file called <code>build.config</code> in the root directory.</p>
+<h3 id="mongoconfiguration">Mongo Configuration</h3>
+<p>Now it's time to set up the engine of our application, the MongoDB. Spring provides a package, <code>org.springframework.data</code>, to make it easy to use data access technologies. If you take a careful look at the the <code>build.gradle</code> file, you will find out we already integrate the MongoDB module into our project.</p>
+<p>To connect to MongoDB, this file is needed:</p>
+<p><em>MongoConfig.java</em></p>
+<pre><code>package com.demo.config;
+
+import com.mongodb.Mongo;
+import com.mongodb.MongoClient;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.data.mongodb.config.AbstractMongoConfiguration;
+import org.springframework.data.mongodb.repository.config.EnableMongoRepositories;
+
+@Configuration
+@EnableMongoRepositories(basePackages = "com.demo.repository")
+public class MongoConfig extends AbstractMongoConfiguration {
+
+    //this is where you specify your database's name
+    @Override
+    protected String getDatabaseName() {
+        return "test"; 
+    }
+
+    @Override
+    public Mongo mongo() throws Exception {
+        return new MongoClient("127.0.0.1", 27017);
+    }
+
+    @Override
+    public String getMappingBasePackage() {
+        return "com.demo";
+    }
+
+}
+</code></pre>
+<p>Of course, you can use <code>application.properties</code> to config the database if you want. It's another way to make Spring-associated configuration, which I think it's not so straightforward and flexible as Java-based config.</p>
+<p>However, a specification file is not enough to boot up an engine, you still need to install the engine itself, MongoDB, into your system. About the installation, please refer to <a href="https://docs.mongodb.com/v3.0/tutorial/install-mongodb-on-os-x/">Install MongoDB</a>. I prefer the manual installation way other than the <code>brew</code> way. If so do you, this guide is clearer, <a href="https://www.mkyong.com/mongodb/how-to-install-mongodb-on-mac-os-x/">How to install MongoDB on Mac OS X</a>.</p>
+<p>After all these boring setups, you can start the database by this command:</p>
+<pre><code>$ mongod
+</code></pre>
+<p>That's all you need to connect to MongoDB, but I still want to recommend you the GUI for MongoDB, <a href="https://www.mongodb.com/products/compass">MongoDB Compass</a>. "The Easiest Way to Explore and Manipulate Your MongoDB Data", like it said.</p>
+<h3 id="thedomainmodel">The Domain Model</h3>
+<p>I forgot to mention that, we are going to implement a sign up function on the backend. So we need a <code>Account</code> object to hold the registrant's information, like this:</p>
+<p><em>Account.java</em></p>
+<pre><code>package com.demo.model;
+
+import lombok.Data;
+import org.springframework.data.annotation.Id;
+import org.springframework.data.mongodb.core.mapping.Document;
+
+@Document
+@Data
+public class Account {
+    @Id
+    private String id;
+
+    private String username;
+
+    private String password;
+
+    private String phone;
+
+    private CountryCode countryCode;
+
+    private String email;
+
+}
+</code></pre>
+<p>With the annotation <code>@Document</code>, the framework will do a mapping between your POJO (Plain Old Java Object) to a MongoDB document. That's saying, when we save one instance of <code>Account</code>, the framework will create a document into the MongoDB, the process is so called data persistence, and that is the moral of all the story here.</p>
+<p>But how we save the Java object to MongoDB?</p>
+<p>We will need this:<br><br>
+<em>AccountRepository.java</em></p>
+<pre><code>package com.hanbang.repository;
+
+import com.hanbang.model.Account;
+import org.springframework.data.mongodb.repository.MongoRepository;
+
+public interface AccountRepository extends MongoRepository&lt;Account, String&gt;{
+} 
+
+</code></pre>
+<p>The <code>MongoRepository</code> offered by <code>org.springframework.data</code> contains a lot of common interfaces that will help interact with the database, like <code>save()</code> method we need.</p>
+<p>For the sake of best practices, we usually create a service layer to separate the business logics and the interaction related to database. Somebody may has criticism of this, but we do it this way, create a service to save <code>Account</code> object to MongoDB:</p>
+<p><em>AccountService.java</em></p>
+<pre><code>import com.hanbang.model.Account;
+import com.hanbang.repository.AccountRepository;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
+
+@Service
+public class AccountService {
+
+    @Autowired
+    private AccountRepository accountRepository;
+
+    public void save(Account account) {
+        accountRepository.save(account);
+    }
+}
+</code></pre>
+<p>With that, when you call <code>accountService.save(account)</code> somewhere, the method <code>accountRepository.save(account)</code> will actually convert the Java object 'Account' to a document record.</p>
+<h3 id="handlethehttprequest">Handle the HTTP request</h3>
+<p>If you don't need to take a break, let's wrap up all these things now...</p>
+<p>A controller in Spring is where the application accept HTTP request from frontend (A mobile app, or a browser) and return the result what frontend asked for.</p>
+<p><em>AccountController.java</em></p>
+<pre><code>package com.demo.controller;
+
+import ...//importing stuff left out here, the IDE will help you, right? By the way, I use IntelliJ...
+
+@Controller
+@RequestMapping(value = "/account")
+public class AccountController {
+
+    private final AccountService accountService;
+
+    @Autowired
+    public AccountController(AccountService accountService) {
+        this.accountService = accountService;
+    }
+
+    @RequestMapping(method= RequestMethod.POST, value = "/test", headers = "Accept=application/json")
+    @ResponseBody
+    public boolean testSave(@RequestBody SignUpRequest userInfo) {
+        String phone = userInfo.getPhone();
+        String countryCode = userInfo.getCountryCode();
+        String email = userInfo.getEmail();
+
+        Account account = new Account();
+        account.setId("10000000000"); //still, for the reason of simplicity...
+        account.setPhone(phone);
+        account.setCountryCode(CountryCode.China);
+        account.setEmail(email);
+        accountService.save(account);
+        return true;
+    }
+}
+
+</code></pre>
+<p>When you send a post request to the location '<a href="http://localhost:8080/account/test">http://localhost:8080/account/test</a>' with body like this:</p>
+<pre><code>{
+	"phone": "1111111111",
+	"countryCode": "86",
+	"email": "test@thoughtworks.com"
+}
+</code></pre>
+<p>The controller will convert the JSON to an Java object, and then save it into MongoDB.</p>
+<p>If you want Spring do the conversion automatically, the process as know as the deserialization, simply create a model to hold the JSON-like object:</p>
+<p><em>SingUpRequest.java</em></p>
+<pre><code>package com.demo.model;
+
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import lombok.Data;
+import lombok.NoArgsConstructor
+
+@Data
+@NoArgsConstructor
+@JsonDeserialize
+public class SignUpRequest {
+    private String phone;
+    private String countryCode;
+    private String email;
+}
+</code></pre>
+<p>A Java object with the annotation <code>@JsonDeserialize</code> can be deserialized from JSON or serialized as JSON, which will handled by Spring without your intervention.</p>
+<p>Last but least, do not forget the main entry of our application:<br><br>
+<em>Application.java</em></p>
+<pre><code>package com.hanbang;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.EnableAutoConfiguration;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.context.annotation.ComponentScan;
+
+@SpringBootApplication
+@ComponentScan("com.hanbang")
+@EnableAutoConfiguration
+public class Application {
+    public static void main(String[] args){
+        SpringApplication.run(Application.class, args);
+    }
+}
+</code></pre>
+<p>Finally, to start the application, just run this command in terminal:</p>
+<pre><code>gradle bootRun
+</code></pre>
+<h3 id="manualtest">Manual Test</h3>
+<p>Send a post request with Postman:</p>
+<p><img src="http://localhost:2368/content/images/2016/11/Screen-Shot-2016-11-27-at-17.05.22.png" alt="Send request with Postman"></p>
+<p>Remember to add the header to request:<br><br>
+'Content-Type: application/x-www-form-urlencoded'</p>
+<p>Then you will see a document in MongoDB Compass:</p>
+<p><img src="http://localhost:2368/content/images/2016/11/-MongoDBCompass-1.jpg" alt="MongoDB Compass result"></p>
+<p>Hope that helps.</p>
+</div>]]></content:encoded></item><item><title><![CDATA[How to construct your very fist React app with Webpack]]></title><description><![CDATA[<div class="kg-card-markdown"><p><strong><em>Prerequisite:<br><br>
+the readers are assumed to have some basic knowledge about <a href="https://facebook.github.io/react/">React</a>, <a href="https://docs.npmjs.com/cli/install#">npm</a> and ES2015(aka ES6).</em></strong></p>
+<p>This article will navigate you to build up a simple React project from scratch, combined with a hot build tools -- webpack. I would like to use webpack to build the web app,</p></div>]]></description><link>http://localhost:2368/how-to-construct-your-very-fist-react-app-with-webpack/</link><guid isPermaLink="false">594513f48511973ba260d739</guid><category><![CDATA[react]]></category><dc:creator><![CDATA[Lam, Hon-Yin]]></dc:creator><pubDate>Thu, 10 Nov 2016 16:03:37 GMT</pubDate><content:encoded><![CDATA[<div class="kg-card-markdown"><p><strong><em>Prerequisite:<br><br>
+the readers are assumed to have some basic knowledge about <a href="https://facebook.github.io/react/">React</a>, <a href="https://docs.npmjs.com/cli/install#">npm</a> and ES2015(aka ES6).</em></strong></p>
+<p>This article will navigate you to build up a simple React project from scratch, combined with a hot build tools -- webpack. I would like to use webpack to build the web app, because webpack is quite straightforward to set up and seems like born to fit with React. Besides that, I will also use npm to manage the packages the project needs.</p>
+<h3 id="preparethegadgets">Prepare the gadgets</h3>
+<p>The first thing I'm going to do is run this command in terminal under the project (Given there is a floder called <code>react-app</code>):</p>
+<pre><code>npm init
+</code></pre>
+<p>This command is it's going to allow us to use npm to require modules that we need, specifically modules like React. Then we install a specific version of ReactJS:</p>
+<pre><code>npm install react@0.14.3
+npm install react-dom@0.14.3
+</code></pre>
+<p>When this is done, what you'll notice is that we have a package.json file and a node modules folder, and inside that node modules folder we have React. And we can require it in the project now.</p>
+<p>Then we should install a bunch of dependencies related to Babel. Babel is a JavaScript compiler that's going to let us write <a href="http://facebook.github.io/react/docs/jsx-in-depth.html">JSX</a> and  ES2015 (aka ES6)</p>
+<pre><code>npm install --save-dev babel-core babel-loader bable-preset-es2015
+babel-preset-react
+</code></pre>
+<p>We don't need to understand all this stuff in one time, but just to know what we're doing here is to let us ues Babel, which will compile our JSX and ES6 codes into something that the browser can read.</p>
+<p>The last thing we need is super nice tool called Webpack, install it using npm:</p>
+<pre><code>npm install webpack -g
+</code></pre>
+<p>Basically, webpack is a module bundler, which takes modules with dependencies and generates static assets representing those modules.<br><br>
+That means we can use it to consturct our front-end project. To be more specifically, webpack looks through all of your project's dependencies (by following require and import statements in JavaScript), processes them using diffrent <code>loaders</code> and then generates a bundled JavaScript file. All the loaders can be configured with the <code>webpack.config.js</code> file, which I will elaborate later.</p>
+<h3 id="buildupthereactapp">Build up the React app</h3>
+<p>To make story short, please constructe the project as following file skeleton:</p>
+<pre><code>react-app
+├── app
+│   └── components
+|          └──app.js
+|
+├── public
+│   └── index.html
+|
+└── node_modules
+|
+└── package.json
+|
+└── webpack.config.js
+</code></pre>
+<p>The file <code>package.json</code> and folder <code>node_moduls</code> are automatically created when we use <code>npm</code> to intall the tools, which we won't go deeper in. We ramp up the others files one by one.</p>
+<h6 id="indexhtml">index.html</h6>
+<p>The <code>index.html</code> under <code>public</code> is going to be basically the root view of our application.</p>
+<pre><code>&lt;!DOCTYPE html&gt;
+&lt;html lang="en"&gt;
+
+&lt;head&gt;
+  &lt;meta charset="utf-8"&gt;
+  &lt;title&gt;React Sample&lt;/title&gt;
+&lt;/head&gt;
+
+&lt;body&gt;
+  &lt;div id="app"&gt;&lt;/div&gt;
+  &lt;script src="bundle.js" charset="utf-8"&gt;&lt;/script&gt;
+&lt;/body&gt;
+
+&lt;/html&gt;
+</code></pre>
+<p>Notice that the the script <code>bundle.js</code> in the <code>&lt;script&gt;</code> tag is a compiled file, generated by babel loader in webpack, which is a compact-versioned code of diffrent components under <code>app</code> folder.</p>
+<h6 id="appjs">app.js</h6>
+<p>So what is in <code>app.js</code> is our very first React component:</p>
+<pre><code>const React = require('react');
+const ReactDom = require('react-dom');
+
+const app = React.createClass({
+  render () {
+    return(
+      &lt;div&gt;
+        Hello world!
+      &lt;/div&gt;
+    )
+  }
+});
+
+ReactDom.render(&lt;app /&gt;, document.getElementById('app'));
+</code></pre>
+<p>What <code>react.createClass</code> does is to create a React component for us.<br><br>
+What render does is to specify what the UI looks like for this specific element. Then the element <code>div</code> containning a "Hello World!" will be returned to the <code>app</code> component, which will be dangled on a empty page as we render <code>&lt;app/&gt;</code> on the HTML using <code>ReactDom</code>.</p>
+<p>Actually now we are using a language called <code>JSX</code>, which allow us to write HTML-ish looking code inside of our JavaScript. The reality is that it is a JavaScript syntax extension to make a convenient way to create JavaScript objects which will reflect to HTML DOM. In anoterh word, that <code>&lt;div&gt;</code> element inside React class we created above is not a true DOM, but a simple javascript object, since it's kind of a syntax sugger <code>JSX</code> offer.</p>
+<p>What <code>ReactDom</code> does is to render the React component to the specific palce. Giving it document.getElementByID and then select apps, and then what the method will do is to grab this element and render the app component to it.</p>
+<h3 id="configurationofwebpack">Configuration of Webpack</h3>
+<p>The configuartion file of webpack <code>webpack.config.js</code> would look like this:</p>
+<pre><code>module.exports = {
+  entry: "./app/components/app.js",
+  output: {
+    filename: "public/bundle.js"
+  },
+  module: {
+    loaders: [
+      {
+        test: /\.jsx?$/,
+        exclude: /(node_modules)/,
+        loader: 'babel',
+        query: {
+          presets: ['react', 'es2015']
+        }
+      }
+    ]
+  }
+}
+
+</code></pre>
+<p>This is the most classic and simple config file of webpack. The property <code>entry</code> define the location of the components webpack will complie. Once webpack is done compiling the components, or transforming this component and all of the children components, it will pack it into <code>bundle.js</code> and put it under public folder, which is defined by <code>output</code>.</p>
+<p>Then I just need to run the command under the folder where config file sits:</p>
+<pre><code>webpack -w
+</code></pre>
+<p>Webpack will create a <code>bundle.js</code> for us.</p>
+<p>What happens between the journey of the codes form <code>entry</code> and <code>output</code> is all about <code>loaders</code>. We are using a loader call <code>babel</code> which we do <code>npm install ...</code> earlier. Then we need to tell Babel exactly what transformation we'd like it to do to our code. Because we build our components with React in a new version of JavaScript called es2015(es6), so we need to tell <code>babel</code> loader the presets of property on this query object. Presets is all the transformations that Babel is going to do to our code. More specifically, I tell Babel to use presets <code>react</code> and <code>es2015</code> to translate the codes of components (under the <code>app</code> folder, where the source codes rest) to a more common kind of JavaScript (which is the <code>bundle.js</code> webpack create) that every brower can understand.</p>
+<p>The <code>-w</code> flag of above command is short for 'watch', which means let webpack watch the source codes under <code>app</code> folder, re-compile every time you change something in it.</p>
+<p>What's more, if you are a serious developer, you can install a tool called webpack-dev-server to help initial a local host.</p>
+<pre><code>npm install webpack-dev-server -g
+</code></pre>
+<p>And run this command under the project folder:</p>
+<pre><code>webpack-dev-server
+</code></pre>
+<p>Then you can see a fancy 'Hello world' on <a href="http://localhost:8080/public/">http://localhost:8080/public/</a></p>
+<h3 id="conculsion">Conculsion</h3>
+<p>When you finish the boring article, you are supposed to know how to set up a new project of React using webpack.</p>
+</div>]]></content:encoded></item></channel></rss>
